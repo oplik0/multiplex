@@ -1,13 +1,20 @@
 let http        = require('http');
 let express		= require('express');
+let cors		= require('cors');
 let fs			= require('fs');
 let io			= require('socket.io');
 let crypto		= require('crypto');
 
 let app       	= express();
+app.use(cors());
 let server    	= http.createServer(app);
 
-io = io(server);
+io = io(server, {
+	cors: {
+		origin: "*",
+		methods: ["GET", "POST"]
+	}
+});
 
 let opts = {
 	port: process.env.PORT || 1948,
@@ -26,6 +33,7 @@ io.on( 'connection', socket => {
 	});
 });
 
+
 app.use( express.static( opts.baseDir ) );
 
 app.get("/", ( req, res ) => {
@@ -42,18 +50,18 @@ app.get("/", ( req, res ) => {
 });
 
 app.get("/token", ( req, res ) => {
-	const secret = crypto.randomBytes(opts.secretLength);
-	res.send({secret: secret.toString('hex'), socketId: createHash(secret)});
+	const secret = crypto.randomBytes(opts.secretLength).toString('hex');
+	res.send({secret: secret, socketId: createHash(secret)});
 });
 
 let createHash = secret => {
 	const salt = crypto.randomBytes(opts.saltLength);
 	const scrypt = crypto.scryptSync(secret, salt, opts.secretLength);
-	return salt.toString('hex') + '$' + scrypt.toString('hex');
+	return salt.toString('hex') + '_' + scrypt.toString('hex');
 };
 
 let verifySecret = (secret, id) => {
-	const [salt, hash] = id.split('$');
+	const [salt, hash] = id.split('_');
 	const scrypt = crypto.scryptSync(secret, salt, opts.secretLength);
 	return scrypt === hash;
 }
