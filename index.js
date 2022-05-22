@@ -5,20 +5,21 @@ let io			= require('socket.io');
 let crypto		= require('crypto');
 
 let app       	= express();
-let staticDir 	= express.static;
 let server    	= http.createServer(app);
 
 io = io(server);
 
 let opts = {
 	port: process.env.PORT || 1948,
-	baseDir : process.cwd()
+	baseDir : process.cwd(),
+	secretLength: process.env.SECRETLENGTH || 32,
+	saltLength: process.env.SALTLENGTH || 16
 };
 
 io.on( 'connection', socket => {
 	socket.on('multiplex-statechanged', data => {
 		if (typeof data.secret == 'undefined' || data.secret == null || data.secret === '') return;
-		if (createHash(data.secret) === data.socketId) {
+		if (verifySecret(data.secret, data.socketId)) {
 			data.secret = null;
 			socket.broadcast.emit(data.socketId, data);
 		};
@@ -41,16 +42,21 @@ app.get("/", ( req, res ) => {
 });
 
 app.get("/token", ( req, res ) => {
-	let ts = new Date().getTime();
-	let rand = Math.floor(Math.random()*9999999);
-	let secret = ts.toString() + rand.toString();
-	res.send({secret: secret, socketId: createHash(secret)});
+	const secret = crypto.randomBytes(opts.secretLength);
+	res.send({secret: secret.toString('hex'), socketId: createHash(secret)});
 });
 
 let createHash = secret => {
-	let cipher = crypto.createCipher('blowfish', secret);
-	return cipher.final('hex');
+	const salt = crypto.randomBytes(opts.saltLength);
+	const scrypt = crypto.scryptSync(secret, salt, opts.secretLength);
+	return salt.toString('hex') + '$' + scrypt.toString('hex');
 };
+
+let verifySecret = (secret, id) => {
+	const [salt, hash] = id.split('$');
+	const scrypt = crypto.scryptSync(secret, salt, opts.secretLength);
+	return scrypt === hash;
+}
 
 // Actually listen
 server.listen( opts.port || null );
